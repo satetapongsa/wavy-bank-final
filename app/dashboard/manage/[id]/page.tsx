@@ -168,8 +168,8 @@ export default function ManageClient() {
             <button
               onClick={toggleBlock}
               className={`w-full py-3 rounded-lg font-bold flex justify-center items-center gap-2 transition-all border ${client.status === 'Active'
-                  ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-600 hover:text-white'
-                  : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-600 hover:text-white'
+                ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-600 hover:text-white'
+                : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-600 hover:text-white'
                 }`}
             >
               {client.status === 'Active' ? <><Ban size={18} /> Block Account</> : <><CheckCircle size={18} /> Unblock Account</>}
@@ -188,3 +188,4 @@ export default function ManageClient() {
     </div>
   );
 }
+ 
