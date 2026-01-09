@@ -1,191 +1,293 @@
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { useRouter, useParams } from "next/navigation";
-import {
-  ArrowLeft, Save, Ban, CheckCircle, History,
-  User, CreditCard, AlertTriangle
+import { useRouter } from "next/navigation";
+import { 
+  LayoutDashboard, Users, Banknote, ShieldCheck, 
+  History, LogOut, Search, Building2, TrendingUp, Settings 
 } from "lucide-react";
 
-export default function ManageClient() {
+export default function Dashboard() {
   const router = useRouter();
-  const params = useParams(); // ดึง ID จาก URL
-  const [client, setClient] = useState<any>(null);
+  const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  
+  // State สำหรับฟอร์มเพิ่มลูกค้าด่วน (Quick Add)
+  const [formData, setFormData] = useState({
+    name: "", 
+    email: "", 
+    balance: "", 
+  });
 
-  // ตัวแปรสำหรับฟอร์มแก้ไข
-  const [editForm, setEditForm] = useState({ name: "", balance: "", email: "" });
-
+  // ------------------------------------------
+  // 1. ระบบรักษาความปลอดภัย (Security Check)
+  // ------------------------------------------
   useEffect(() => {
-    fetchClientData();
-  }, []);
+    const checkAuth = async () => {
+      // เช็คว่าเป็น Admin ลับ (ที่เราสร้างไว้) หรือไม่?
+      const adminFlag = localStorage.getItem("isAdmin");
+      
+      // เช็คว่าเป็นคนธรรมดา (Login ผ่าน Database) หรือไม่?
+      const { data: { session } } = await supabase.auth.getSession();
 
-  const fetchClientData = async () => {
-    // ดึงข้อมูลลูกค้าคนนี้จาก Database จริง
-    const { data } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('id', params.id)
-      .single();
+      if (!adminFlag && !session) {
+        // ถ้าไม่มีตั๋วสักใบ -> ดีดกลับหน้าแรกทันที
+        router.push("/"); 
+      } else {
+        // ถ้ามีตั๋ว -> อนุญาตให้โหลดข้อมูล
+        if (adminFlag) setIsAdmin(true);
+        fetchClients();
+      }
+    };
 
-    if (data) {
-      setClient(data);
-      // เอาข้อมูลเก่ามาใส่ในฟอร์มรอไว้
-      setEditForm({
-        name: data.name,
-        balance: data.balance,
-        email: data.name.toLowerCase().replace(/ /g, '') + "@infinitycore.com" // จำลองเมล
-      });
+    checkAuth();
+  }, [router]);
+
+  // ดึงข้อมูลลูกค้าทั้งหมด
+  const fetchClients = async () => {
+    try {
+      const { data, error } = await supabase.from('clients').select('*').order('id', { ascending: false });
+      if (error) throw error;
+      setClients(data || []);
+    } catch (error) {
+      console.error('Error:', error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // ------------------------------------------
-  // ฟังก์ชัน 1: บันทึกการแก้ไข (Update Real Data)
+  // 2. ฟังก์ชัน Logout (ออกจากระบบ)
   // ------------------------------------------
-  const handleSave = async () => {
-    if (!confirm("Confirm changes to this account?")) return;
+  const handleLogout = async () => {
+    localStorage.removeItem("isAdmin"); // ลบสิทธิ์ Admin
+    await supabase.auth.signOut();      // ลบ Session Database
+    router.push("/");                   // ดีดกลับหน้า Login
+  };
 
-    const { error } = await supabase
-      .from('clients')
-      .update({
-        name: editForm.name,
-        balance: parseFloat(editForm.balance)
-      })
-      .eq('id', params.id); // แก้เฉพาะคนที่มี ID นี้
+  // ------------------------------------------
+  // 3. ฟังก์ชันสร้างลูกค้าใหม่ (Quick Add)
+  // ------------------------------------------
+  const handleCreate = async () => {
+    if (!formData.name || !formData.balance) return alert("Please fill in all fields");
+    
+    // สุ่มเลขบัญชีให้ดูเหมือนจริง
+    const accNum = `${Math.floor(100 + Math.random() * 900)}-${Math.floor(Math.random() * 9)}-${Math.floor(10000 + Math.random() * 90000)}-${Math.floor(10 + Math.random() * 90)}`;
 
+    const newClient = {
+      name: formData.name,
+      account_number: accNum,
+      balance: parseFloat(formData.balance),
+      region: 'Bangkok',
+      status: 'Active'
+    };
+
+    const { error } = await supabase.from('clients').insert([newClient]);
     if (!error) {
-      alert("✅ ข้อมูลอัปเดตลง Database เรียบร้อย!");
-      fetchClientData(); // โหลดข้อมูลใหม่มาโชว์
+      alert("New account created successfully!");
+      fetchClients(); // โหลดข้อมูลใหม่ทันที
+      setFormData({ name: "", email: "", balance: "" }); // ล้างฟอร์ม
     } else {
-      alert("❌ Error: " + error.message);
+      alert("Error creating account");
     }
   };
 
-  // ------------------------------------------
-  // ฟังก์ชัน 2: บล็อกบัญชี (Block/Unblock)
-  // ------------------------------------------
-  const toggleBlock = async () => {
-    const newStatus = client.status === 'Active' ? 'Blocked' : 'Active';
-    const action = newStatus === 'Blocked' ? "ระงับการใช้งาน (Block)" : "ปลดบล็อก (Unblock)";
+  // คำนวณตัวเลขสรุปยอด (Stats)
+  const totalDeposits = clients.reduce((sum, client) => sum + Number(client.balance), 0);
+  const activeAccounts = clients.filter(c => c.status === 'Active').length;
 
-    if (!confirm(`คุณต้องการ "${action}" บัญชีนี้ใช่ไหม?`)) return;
-
-    const { error } = await supabase
-      .from('clients')
-      .update({ status: newStatus })
-      .eq('id', params.id);
-
-    if (!error) {
-      fetchClientData();
-    }
-  };
-
-  if (loading) return <div className="p-10 text-center font-bold text-slate-400">Loading Customer Data...</div>;
-  if (!client) return <div className="p-10 text-center text-red-500">Customer not found!</div>;
+  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50 text-slate-400 font-bold animate-pulse">Loading System...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-100 p-8 font-sans text-slate-900">
-
-      {/* Header & Back Button */}
-      <div className="max-w-5xl mx-auto mb-6 flex justify-between items-center">
-        <button onClick={() => router.back()} className="flex items-center gap-2 text-slate-500 hover:text-blue-600 font-bold transition-colors">
-          <ArrowLeft size={20} /> Back to Accounts
-        </button>
-        <div className="text-right">
-          <p className="text-xs text-slate-400 font-bold uppercase">System ID</p>
-          <p className="font-mono text-slate-600">#{params.id}</p>
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
+      
+      {/* Sidebar เมนูซ้าย (Infinity Core Design) */}
+      <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-20">
+        <div className="p-6 flex items-center gap-3 border-b border-slate-800">
+          <div className="bg-white/10 p-2 rounded">
+            <Building2 size={24} className="text-white" />
+          </div>
+          <span className="font-bold text-lg tracking-wide">INFINITY CORE</span>
         </div>
-      </div>
 
-      <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
+        <nav className="flex-1 py-6 px-3 space-y-1">
+          <p className="px-4 text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">Dashboard</p>
+          
+          {/* ปุ่มนี้ Active สีน้ำเงิน */}
+          <a href="/dashboard" className="flex items-center gap-3 px-4 py-3 bg-blue-600 rounded-lg text-white font-medium shadow-sm transition-all">
+            <LayoutDashboard size={18} /> Overview
+          </a>
+          
+          {/* ปุ่มไปหน้า Accounts (Workspace) */}
+          <a href="/dashboard/accounts" className="flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
+            <Users size={18} /> Accounts (Workspace)
+          </a>
+          
+          <a href="#" className="flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
+            <Banknote size={18} /> Loans
+          </a>
 
-        {/* ส่วนที่ 1: การ์ดข้อมูลหลัก (แก้ไขได้) */}
-        <div className="md:col-span-2 space-y-6">
-          <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
-            <div className="flex justify-between items-start mb-6">
-              <h2 className="text-2xl font-bold flex items-center gap-2">
-                <User className="text-blue-600" /> Edit Profile
-              </h2>
-              <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase flex items-center gap-2 ${client.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-                {client.status === 'Active' ? <CheckCircle size={14} /> : <Ban size={14} />}
-                {client.status}
-              </span>
+          <div className="my-4 border-t border-slate-800"></div>
+
+          <p className="px-4 text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">System</p>
+          <a href="#" className="flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
+            <History size={18} /> Recent Activity
+          </a>
+        </nav>
+
+        {/* User Info ด้านล่าง */}
+        <div className="p-4 border-t border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${isAdmin ? 'bg-red-500' : 'bg-blue-500'}`}>
+              {isAdmin ? 'A' : 'S'}
             </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Account Name (Legal Name)</label>
-                <input
-                  type="text"
-                  className="w-full text-lg font-bold border-b-2 border-slate-200 focus:border-blue-600 outline-none py-2 bg-transparent transition-colors"
-                  value={editForm.name}
-                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Account Number</label>
-                  <div className="font-mono text-slate-400 py-2 select-all">{client.account_number}</div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Current Balance (THB)</label>
-                  <input
-                    type="number"
-                    className="w-full text-lg font-bold text-blue-600 border-b-2 border-slate-200 focus:border-blue-600 outline-none py-2 bg-transparent transition-colors"
-                    value={editForm.balance}
-                    onChange={(e) => setEditForm({ ...editForm, balance: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-slate-100 mt-4 flex justify-end">
-                <button
-                  onClick={handleSave}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 transition-all active:scale-95"
-                >
-                  <Save size={18} /> Save Changes
-                </button>
-              </div>
+            <div>
+              <p className="text-sm font-bold">{isAdmin ? 'Super Admin' : 'Staff User'}</p>
+              <p className="text-xs text-slate-400">System Operator</p>
             </div>
           </div>
         </div>
+      </aside>
 
-        {/* ส่วนที่ 2: เมนูจัดการความเสี่ยง (Block/Unblock) */}
-        <div className="space-y-6">
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <AlertTriangle className="text-orange-500" /> Administrative Actions
-            </h3>
-
-            <p className="text-sm text-slate-500 mb-4">
-              {client.status === 'Active'
-                ? "หากพบพฤติกรรมน่าสงสัย คุณสามารถระงับบัญชีนี้ได้ชั่วคราว การทำธุรกรรมทั้งหมดจะถูกปฏิเสธ"
-                : "บัญชีนี้ถูกระงับอยู่ หากตรวจสอบแล้วปลอดภัย สามารถปลดบล็อกได้ทันที"}
-            </p>
-
-            <button
-              onClick={toggleBlock}
-              className={`w-full py-3 rounded-lg font-bold flex justify-center items-center gap-2 transition-all border ${client.status === 'Active'
-                ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-600 hover:text-white'
-                : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-600 hover:text-white'
-                }`}
+      {/* Main Content พื้นที่ขวา */}
+      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+        
+        {/* Header Bar */}
+        <header className="h-16 bg-white border-b border-slate-200 flex justify-between items-center px-8 shadow-sm">
+          <h1 className="text-xl font-bold text-slate-800">Executive Overview</h1>
+          <div className="flex items-center gap-6">
+            <div className="text-right hidden md:block">
+              <p className="text-sm font-bold text-slate-800">{isAdmin ? 'Administrator' : 'Staff'}</p>
+              <p className="text-xs text-slate-500">Authorized Access</p>
+            </div>
+            <button 
+              onClick={handleLogout} 
+              className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 text-sm font-medium transition-colors"
             >
-              {client.status === 'Active' ? <><Ban size={18} /> Block Account</> : <><CheckCircle size={18} /> Unblock Account</>}
+              <LogOut size={16} /> Logout
             </button>
           </div>
+        </header>
 
-          <div className="bg-slate-900 text-slate-400 p-6 rounded-xl text-xs font-mono">
-            <p>- Account loaded successfully.</p>
-            <p>- Connection: Secure (SSL)</p>
-            <p>- Database: Connected</p>
-            <p className="text-green-500">- Ready for commands_</p>
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto p-8 space-y-8">
+          
+          {/* 1. Cards สรุปยอดเงิน */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            {/* Total Assets */}
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                <Banknote size={64} className="text-blue-600" />
+              </div>
+              <p className="text-xs font-bold text-slate-500 uppercase mb-1">Total Deposits (Liabilities)</p>
+              <h3 className="text-2xl font-bold text-slate-900">
+                {totalDeposits.toLocaleString()} <span className="text-sm text-slate-400 font-normal">THB</span>
+              </h3>
+            </div>
+            
+            {/* Active Accounts */}
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+              <p className="text-xs font-bold text-slate-500 uppercase mb-1">Active Accounts</p>
+              <h3 className="text-2xl font-bold text-slate-900">{activeAccounts} / {clients.length}</h3>
+            </div>
+            
+            {/* Pending KYC */}
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+              <p className="text-xs font-bold text-slate-500 uppercase mb-1">Pending KYCs</p>
+              <h3 className="text-2xl font-bold text-slate-900">0</h3>
+            </div>
+            
+            {/* System Health */}
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+              <p className="text-xs font-bold text-slate-500 uppercase mb-1">System Health</p>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                <h3 className="text-lg font-bold text-green-600">OPERATIONAL</h3>
+              </div>
+            </div>
           </div>
-        </div>
 
-      </div>
+          {/* 2. Quick Add Client (ฟอร์มเพิ่มลูกค้าด่วน) */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 text-slate-900 font-bold min-w-max">
+                <Users size={20} /> Quick Add Client
+              </div>
+              <input 
+                placeholder="Full Name" 
+                className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+                value={formData.name}
+                onChange={(e) => setFormData({...formData, name: e.target.value})}
+              />
+              <input 
+                placeholder="Email (Login ID)" 
+                className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+                value={formData.email}
+                onChange={(e) => setFormData({...formData, email: e.target.value})}
+              />
+              <input 
+                type="number"
+                placeholder="Opening Balance" 
+                className="w-48 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+                value={formData.balance}
+                onChange={(e) => setFormData({...formData, balance: e.target.value})}
+              />
+              <button 
+                onClick={handleCreate}
+                className="bg-slate-900 hover:bg-slate-800 text-white px-6 py-2 rounded-lg text-sm font-bold shadow-lg shadow-slate-900/20 transition-all active:scale-95"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+
+          {/* 3. Recent Registrations (ตารางย่อ) */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <TrendingUp size={18} /> Recent Registrations
+              </h3>
+              <a href="/dashboard/accounts" className="text-sm text-blue-600 font-bold hover:underline cursor-pointer">
+                View All Accounts &rarr;
+              </a>
+            </div>
+            
+            <table className="w-full">
+              <thead className="bg-slate-50 text-xs font-bold text-slate-500 uppercase">
+                <tr>
+                  <th className="px-6 py-4 text-left">Account No.</th>
+                  <th className="px-6 py-4 text-left">Client Name</th>
+                  <th className="px-6 py-4 text-right">Balance</th>
+                  <th className="px-6 py-4 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {clients.slice(0, 5).map((client) => (
+                  <tr key={client.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 text-sm font-mono text-blue-600">{client.account_number}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-slate-800">{client.name}</td>
+                    <td className="px-6 py-4 text-sm text-right font-bold text-slate-700">
+                      {Number(client.balance).toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${client.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                        {client.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            
+            {/* กรณีไม่มีข้อมูล */}
+            {clients.length === 0 && (
+              <div className="p-8 text-center text-slate-400 text-sm">No clients found. Add one above.</div>
+            )}
+          </div>
+
+        </div>
+      </main>
     </div>
   );
 }
- 
