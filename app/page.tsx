@@ -15,15 +15,16 @@ export default function Dashboard() {
   const [formData, setFormData] = useState({ name: "", email: "", balance: "" });
 
   // ---------------------------------------------------------
-  // 1. แยกส่วนเช็คสิทธิ์ (Security Check)
+  // 1. แยกส่วนเช็คสิทธิ์
   // ---------------------------------------------------------
   useEffect(() => {
     const checkAuth = async () => {
       const adminFlag = localStorage.getItem("isAdmin");
       const { data: { session } } = await supabase.auth.getSession();
       
+      // ถ้าไม่มีตั๋วสักใบ ดีดออกไปหน้าแรก
       if (!adminFlag && !session) {
-        router.replace("/"); // ถ้าไม่มีสิทธิ์ ดีดออก
+        window.location.href = "/"; // ใช้ไม้แข็งดีดออกเลย
       } else if (adminFlag) {
         setIsAdmin(true);
       }
@@ -32,13 +33,11 @@ export default function Dashboard() {
   }, []);
 
   // ---------------------------------------------------------
-  // 2. แยกส่วนดึงข้อมูล (Data Fetching) - ดึงเลย ไม่ต้องรอใคร!
+  // 2. ดึงข้อมูล (แยกออกมาเพื่อให้กด Refresh เองได้)
   // ---------------------------------------------------------
   const fetchData = async () => {
     try {
       setLoading(true);
-      console.log("Fetching data..."); // เช็คใน Console ได้
-
       const { data, error } = await supabase
         .from('clients')
         .select('*')
@@ -46,9 +45,7 @@ export default function Dashboard() {
 
       if (error) {
         console.error("Supabase Error:", error);
-        alert("Error fetching data: " + error.message);
       } else {
-        console.log("Data received:", data);
         setClients(data || []);
       }
     } catch (err) {
@@ -58,20 +55,31 @@ export default function Dashboard() {
     }
   };
 
-  // สั่งให้ดึงข้อมูลทันทีที่เปิดหน้า
   useEffect(() => {
     fetchData();
   }, []);
 
   // ---------------------------------------------------------
-  // ฟังก์ชันอื่นๆ
+  // ✅ 3. ฟังก์ชัน Logout (แก้ให้ใช้ไม้แข็ง)
   // ---------------------------------------------------------
   const handleLogout = async () => {
-    localStorage.removeItem("isAdmin");
-    await supabase.auth.signOut();
-    window.location.href = "/";
+    try {
+      // 1. ลบตั๋ว Admin ปลอม
+      localStorage.removeItem("isAdmin");
+      
+      // 2. ลบ Session ของ Supabase (ถ้ามี)
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error("Logout Error:", error);
+    } finally {
+      // 3. 💥 ไม้ตาย: บังคับโหลดหน้าแรกใหม่ (ล้าง Memory เกลี้ยง)
+      window.location.href = "/";
+    }
   };
 
+  // ---------------------------------------------------------
+  // ฟังก์ชันอื่นๆ (เหมือนเดิม)
+  // ---------------------------------------------------------
   const handleCreate = async () => {
     if (!formData.name || !formData.balance) return alert("Please fill in all fields");
     const accNum = `${Math.floor(100 + Math.random() * 900)}-${Math.floor(Math.random() * 9)}-${Math.floor(10000 + Math.random() * 90000)}-${Math.floor(10 + Math.random() * 90)}`;
@@ -89,8 +97,7 @@ export default function Dashboard() {
       status: 'Active'
     }]);
     
-    // fetch ใหม่เพื่อความชัวร์
-    fetchData();
+    fetchData(); // ดึงข้อมูลใหม่เพื่อความชัวร์
   };
 
   const totalDeposits = clients.reduce((sum, client) => sum + Number(client.balance), 0);
@@ -134,11 +141,11 @@ export default function Dashboard() {
         <header className="h-16 bg-white border-b border-slate-200 flex justify-between items-center px-8 shadow-sm">
           <h1 className="text-xl font-bold text-slate-800">Executive Overview</h1>
           <div className="flex items-center gap-3">
-             {/* ปุ่ม Refresh Data (กดเองได้เลย) */}
              <button onClick={fetchData} className="flex items-center gap-2 px-3 py-2 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-colors text-sm font-bold">
                <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> Refresh Data
              </button>
-             <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 text-sm font-medium transition-colors">
+             {/* ปุ่ม Logout ที่แก้แล้ว */}
+             <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 text-sm font-medium transition-colors cursor-pointer">
                <LogOut size={16} /> Logout
              </button>
           </div>
@@ -148,7 +155,6 @@ export default function Dashboard() {
           
           {/* ส่วนแสดงผล */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Total Assets */}
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
               <div className="absolute top-0 right-0 p-4 opacity-10"><Banknote size={64} className="text-blue-600" /></div>
               <p className="text-xs font-bold text-slate-500 uppercase mb-1">Total Assets</p>
@@ -157,13 +163,11 @@ export default function Dashboard() {
               </h3>
             </div>
             
-            {/* Active Accounts */}
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
               <p className="text-xs font-bold text-slate-500 uppercase mb-1">Active Accounts</p>
               <h3 className="text-3xl font-bold text-slate-900 tracking-tight">{activeAccounts} <span className="text-lg text-slate-400">/ {clients.length}</span></h3>
             </div>
             
-            {/* System Health */}
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
               <p className="text-xs font-bold text-slate-500 uppercase mb-1">System Health</p>
               <div className="flex items-center gap-2 mt-2">
@@ -173,7 +177,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Quick Add */}
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mt-6">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2 text-slate-900 font-bold min-w-max"><Users size={20} /> Quick Add Client</div>
@@ -184,7 +187,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Table */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-6">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center">
               <h3 className="font-bold text-slate-800 flex items-center gap-2"><TrendingUp size={18} /> Recent Registrations</h3>
