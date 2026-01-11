@@ -14,11 +14,11 @@ export default function LoginPage() {
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === "admin" && (password === "admin" || password === "887624")) {
+    if (username === "admin" && (password === "admins" || password === "887624")) {
       localStorage.setItem("isAdmin", "true");
       window.location.href = "/dashboard";
     } else {
-      alert("รหัสผิด (ลอง admin / admin)");
+      alert("รหัสผู้ดูแลไม่ถูกต้อง");
     }
   };
 
