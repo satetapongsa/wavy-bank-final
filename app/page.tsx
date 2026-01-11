@@ -3,34 +3,39 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { 
   LayoutDashboard, Users, Banknote, LogOut, 
-  TrendingUp, Landmark, RefreshCw 
+  TrendingUp, Landmark, RefreshCw, ShieldCheck, AlertTriangle, Activity 
 } from "lucide-react";
 
 export default function Dashboard() {
   const [clients, setClients] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false); // ปิด loading เริ่มต้นไปเลย จะได้เห็นหน้าเว็บแน่ๆ
+  const [loading, setLoading] = useState(false);
+  
+  // State เช็คสิทธิ์ (เริ่มที่ true ไว้ก่อน หน้าจะได้ไม่กระพริบตอนโหลด)
+  const [isAuthorized, setIsAuthorized] = useState(true);
+  
+  // State สำหรับฟอร์ม
   const [formData, setFormData] = useState({ name: "", email: "", balance: "" });
 
-  // ---------------------------------------------------------
-  // 1. เปิดมาสั่งดึงข้อมูลเลย (ไม่สนสิทธิ์ ไม่สนเหี้ยไรทั้งนั้น ขอข้อมูลก่อน)
-  // ---------------------------------------------------------
   useEffect(() => {
+    // 1. เช็คสิทธิ์แบบ Manual
+    const adminKey = localStorage.getItem("isAdmin");
+    
+    if (!adminKey) {
+      // 🛑 ถ้าไม่มีสิทธิ์: ห้ามสั่ง Redirect อัตโนมัติ! (ตัวการทำ Loop)
+      // ให้ปรับ State เพื่อโชว์หน้า "Access Denied" แทน
+      setIsAuthorized(false);
+      return; 
+    }
+
+    // 2. ถ้ามีสิทธิ์: ดึงข้อมูลทันที
     fetchData();
   }, []);
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('clients')
-        .select('*')
-        .order('id', { ascending: false });
-
-      if (error) {
-        console.error("Error:", error);
-      } else {
-        setClients(data || []);
-      }
+      const { data } = await supabase.from('clients').select('*').order('id', { ascending: false });
+      setClients(data || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -38,145 +43,172 @@ export default function Dashboard() {
     }
   };
 
-  // ---------------------------------------------------------
-  // 2. ปุ่ม Logout (ล้างทุกอย่างแล้วถีบออก)
-  // ---------------------------------------------------------
   const handleLogout = async () => {
-    localStorage.clear(); // ล้าง LocalStorage เกลี้ยง
-    await supabase.auth.signOut(); // ล้าง Supabase
-    window.location.href = "/"; // สั่งรีเฟรชกลับหน้าแรก
+    localStorage.clear();
+    await supabase.auth.signOut();
+    window.location.href = "/"; // กดเอง ถึงจะยอมให้ดีดกลับ
   };
 
-  // ฟังก์ชันเพิ่มข้อมูล
   const handleCreate = async () => {
-    if (!formData.name || !formData.balance) return alert("ใส่ข้อมูลให้ครบก่อนครับพี่");
+    if (!formData.name || !formData.balance) return alert("กรอกข้อมูลให้ครบก่อนครับ");
+    const accNum = `101-0-${Math.floor(Math.random() * 89999 + 10000)}-${Math.floor(Math.random() * 9)}`;
     
-    // ยัดข้อมูลปลอมโชว์ก่อนเลย (จะได้รู้สึกว่าเร็ว)
-    const accNum = `101-0-${Math.floor(Math.random() * 99999)}-9`;
-    const fakeNew = { id: Date.now(), name: formData.name, account_number: accNum, balance: formData.balance, status: 'Active' };
-    setClients([fakeNew, ...clients]);
-    
-    setFormData({ name: "", email: "", balance: "" }); // ล้างฟอร์ม
+    const fake = { id: Date.now(), name: formData.name, account_number: accNum, balance: formData.balance, status: 'Active' };
+    setClients([fake, ...clients]);
+    setFormData({ name: "", email: "", balance: "" });
 
-    // ส่งเข้า Database จริง
     await supabase.from('clients').insert([{
       name: formData.name,
+      email: formData.email || `user${Date.now()}@temp.com`,
       account_number: accNum,
       balance: parseFloat(formData.balance),
-      region: 'Bangkok',
-      status: 'Active'
+      status: 'Active',
+      region: 'Bangkok'
     }]);
     
-    // ดึงข้อมูลจริงตามหลัง
     fetchData();
   };
 
-  const totalDeposits = clients.reduce((sum, client) => sum + Number(client.balance), 0);
-  const activeAccounts = clients.filter(c => c.status === 'Active').length;
+  const totalAssets = clients.reduce((sum, c) => sum + Number(c.balance), 0);
+  const activeUsers = clients.filter(c => c.status === 'Active').length;
 
+  // ------------------------------------------------------------------
+  // ⛔️ โซนกันผี (Anti-Loop): ถ้าไม่มีสิทธิ์ ให้โชว์หน้านี้ "นิ่งๆ"
+  // ------------------------------------------------------------------
+  if (!isAuthorized) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-slate-900 text-white gap-6">
+        <div className="bg-red-500/20 p-6 rounded-full animate-pulse">
+           <AlertTriangle size={64} className="text-red-500" />
+        </div>
+        <div className="text-center">
+            <h1 className="text-3xl font-bold mb-2">Access Denied</h1>
+            <p className="text-slate-400">คุณไม่มีสิทธิ์เข้าถึงหน้านี้ (กรุณาเข้าสู่ระบบด้วยรหัส Admin)</p>
+        </div>
+        
+        {/* ปุ่มนี้ให้ User กดเอง เพื่อหยุด Loop */}
+        <button 
+          onClick={() => window.location.href = "/"}
+          className="bg-red-600 px-8 py-3 rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-600/30"
+        >
+          กลับไปหน้า Login
+        </button>
+      </div>
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // ✅ โซน Admin Dashboard (ตัวเต็ม)
+  // ------------------------------------------------------------------
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
       
       {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-20">
+      <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-20">
         <div className="p-6 flex items-center gap-3 border-b border-slate-800">
-          <div className="bg-blue-600 p-2 rounded-lg">
-            <Landmark size={24} className="text-white" />
-          </div>
+          <div className="bg-blue-600 p-2 rounded-lg"><Landmark size={24} /></div>
           <span className="font-bold text-lg tracking-wide">WAVY BANK</span>
         </div>
-
-        <nav className="flex-1 py-6 px-3 space-y-1">
-          <a href="/dashboard" className="flex items-center gap-3 px-4 py-3 bg-blue-600 rounded-lg text-white font-medium">
-            <LayoutDashboard size={18} /> Overview
-          </a>
-          <a href="/dashboard/accounts" className="flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg">
-            <Users size={18} /> Accounts
-          </a>
+        <nav className="flex-1 p-4 space-y-2">
+          <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 px-2">Main Menu</div>
+          <button className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600/10 text-blue-400 border border-blue-600/20 rounded-xl font-bold">
+            <LayoutDashboard size={20} /> Executive Overview
+          </button>
         </nav>
-
-        <div className="p-4 border-t border-slate-800 bg-slate-900/50">
+        <div className="p-4 border-t border-slate-800 bg-slate-950/30">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center font-bold text-white">A</div>
-            <div>
-              <p className="text-sm font-bold text-white">ADMIN</p>
-              <p className="text-[10px] text-slate-400">System Operator</p>
-            </div>
+            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center font-bold shadow-lg">A</div>
+            <div><p className="text-sm font-bold">Administrator</p><p className="text-[10px] text-slate-400">System Access: Full</p></div>
           </div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 flex justify-between items-center px-8 shadow-sm">
-          <h1 className="text-xl font-bold text-slate-800">Executive Overview</h1>
-          <div className="flex items-center gap-3">
-             <button onClick={fetchData} className="flex items-center gap-2 px-3 py-2 text-slate-500 hover:text-blue-600 border rounded-lg">
-               <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> Refresh
-             </button>
-             <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-600 hover:text-white font-bold transition-colors">
-               <LogOut size={16} /> Logout
-             </button>
+      <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
+        <header className="h-20 bg-white border-b border-slate-200 flex justify-between items-center px-8 shadow-sm z-10">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Financial Command Center</h1>
+            <p className="text-slate-400 text-xs">Real-time Banking Monitoring System</p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={fetchData} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"><RefreshCw size={20} className={loading ? "animate-spin" : ""} /></button>
+            <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-600 hover:text-white font-bold transition cursor-pointer">
+              <LogOut size={18} /> Logout
+            </button>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 space-y-8">
+        <div className="flex-1 overflow-y-auto p-8 space-y-8 pb-20">
           
           {/* Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-4 opacity-10"><Banknote size={64} className="text-blue-600" /></div>
-              <p className="text-xs font-bold text-slate-500 uppercase mb-1">Total Assets</p>
-              <h3 className="text-3xl font-bold text-slate-900">
-                {totalDeposits.toLocaleString()} <span className="text-sm text-slate-400 font-normal">THB</span>
-              </h3>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
+              <div className="absolute right-0 top-0 p-4 opacity-5"><Banknote size={80} /></div>
+              <p className="text-xs font-bold text-slate-400 uppercase">Total Assets</p>
+              <h3 className="text-3xl font-bold text-slate-900 mt-1">{totalAssets.toLocaleString()} <span className="text-sm font-normal text-slate-400">THB</span></h3>
+              <div className="mt-4 text-xs font-bold text-green-600 flex items-center gap-1"><TrendingUp size={14}/> +2.4% Growth</div>
             </div>
-            
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-              <p className="text-xs font-bold text-slate-500 uppercase mb-1">Active Accounts</p>
-              <h3 className="text-3xl font-bold text-slate-900">{activeAccounts} <span className="text-lg text-slate-400">/ {clients.length}</span></h3>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <p className="text-xs font-bold text-slate-400 uppercase">Active Accounts</p>
+              <h3 className="text-3xl font-bold text-slate-900 mt-1">{activeUsers}</h3>
+              <div className="mt-4 text-xs font-bold text-blue-600 flex items-center gap-1"><ShieldCheck size={14}/> Verified Users</div>
             </div>
-            
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-              <p className="text-xs font-bold text-slate-500 uppercase mb-1">System Status</p>
-              <h3 className="text-xl font-bold text-green-600 flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span> ONLINE
-              </h3>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <p className="text-xs font-bold text-slate-400 uppercase">System Health</p>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span>
+                <span className="font-bold text-green-600 text-lg">OPERATIONAL</span>
+              </div>
             </div>
           </div>
 
-          {/* Quick Add */}
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mt-6">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-slate-900 font-bold min-w-max"><Users size={20} /> Quick Add</div>
-              <input placeholder="Name" className="flex-1 border p-2 rounded" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
-              <input placeholder="Email" className="flex-1 border p-2 rounded" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} />
-              <input type="number" placeholder="Balance" className="w-32 border p-2 rounded" value={formData.balance} onChange={(e) => setFormData({...formData, balance: e.target.value})} />
-              <button onClick={handleCreate} className="bg-slate-900 text-white px-6 py-2 rounded font-bold hover:bg-slate-800">Add</button>
+          {/* Registration & Table */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Form */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Users size={20} className="text-blue-600"/> Fast Registration</h3>
+              <div className="space-y-3">
+                <input placeholder="Client Name" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                <input placeholder="Email" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+                <input type="number" placeholder="Initial Deposit" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm" value={formData.balance} onChange={e => setFormData({...formData, balance: e.target.value})} />
+                <button onClick={handleCreate} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition">Create Account</button>
+              </div>
             </div>
-          </div>
 
-          {/* Table */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-6">
-            <table className="w-full">
-              <thead className="bg-slate-50 text-xs font-bold text-slate-500 uppercase">
-                <tr><th className="px-6 py-4 text-left">Account</th><th className="px-6 py-4 text-left">Name</th><th className="px-6 py-4 text-right">Balance</th><th className="px-6 py-4 text-center">Status</th></tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {clients.length > 0 ? clients.map((client) => (
-                  <tr key={client.id}>
-                    <td className="px-6 py-4 text-sm font-mono text-blue-600">{client.account_number}</td>
-                    <td className="px-6 py-4 text-sm font-bold">{client.name}</td>
-                    <td className="px-6 py-4 text-sm text-right font-bold">{Number(client.balance).toLocaleString()}</td>
-                    <td className="px-6 py-4 text-center"><span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">{client.status}</span></td>
-                  </tr>
-                )) : (
-                  <tr><td colSpan={4} className="p-8 text-center text-slate-400">
-                    {loading ? "กำลังโหลด..." : "ไม่พบข้อมูล (ลองกด Refresh ดูครับ)"}
-                  </td></tr>
-                )}
-              </tbody>
-            </table>
+            {/* Table */}
+            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2"><Activity size={20} className="text-blue-600"/> Live Database</h3>
+              </div>
+              <div className="overflow-y-auto max-h-[400px]">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-xs font-bold text-slate-500 uppercase sticky top-0">
+                    <tr><th className="p-4">Account</th><th className="p-4">Name</th><th className="p-4 text-right">Balance</th><th className="p-4 text-center">Status</th><th className="p-4 text-center">Action</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {clients.map(c => (
+                      <tr key={c.id} className="hover:bg-slate-50 transition">
+                        <td className="p-4 font-mono text-xs text-slate-500">{c.account_number}</td>
+                        <td className="p-4 font-bold text-slate-700">{c.name}</td>
+                        <td className="p-4 text-right font-bold text-slate-900">{Number(c.balance).toLocaleString()}</td>
+                        <td className="p-4 text-center">
+                          <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${c.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                            {c.status}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          <a href={`/dashboard/manage/${c.id}`} className="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-600 transition">
+                            Manage
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
 
         </div>

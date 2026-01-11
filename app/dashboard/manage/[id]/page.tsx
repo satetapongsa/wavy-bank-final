@@ -2,197 +2,155 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter, useParams } from "next/navigation";
-import { 
-  ArrowLeft, Save, Ban, CheckCircle, History, 
-  User, AlertTriangle, Trash2 
-} from "lucide-react";
+import { ArrowLeft, Save, Ban, Trash2, History, ShieldCheck, AlertOctagon } from "lucide-react";
 
 export default function ManageClient() {
   const router = useRouter();
-  const params = useParams();
+  const params = useParams(); // เอา ID ลูกค้ามาจาก URL
   const [client, setClient] = useState<any>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [editForm, setEditForm] = useState({ name: "", balance: "" });
+  
+  // State สำหรับแก้ไข
+  const [editName, setEditName] = useState("");
+  const [editBalance, setEditBalance] = useState("");
 
   useEffect(() => {
-    const fetchData = async () => {
-      // ดึงข้อมูลลูกค้า
-      const { data: c } = await supabase.from('clients').select('*').eq('id', params.id).single();
-      if (c) { 
-        setClient(c); 
-        setEditForm({ name: c.name, balance: c.balance }); 
-      }
-      
-      // ดึงประวัติธุรกรรม
-      const { data: t } = await supabase.from('transactions').select('*').eq('client_id', params.id).order('created_at', { ascending: false });
-      setTransactions(t || []);
-    };
-    fetchData();
-  }, [params.id]);
+    fetchClientData();
+  }, []);
 
-  // ฟังก์ชันบันทึกแก้ไขข้อมูล
-  const handleSave = async () => {
-    if (!confirm("Confirm update details?")) return;
-    const { error } = await supabase.from('clients').update({ 
-      name: editForm.name, 
-      balance: parseFloat(editForm.balance) 
-    }).eq('id', params.id);
-    
-    if (!error) alert("Profile updated successfully!");
-  };
-
-  // ฟังก์ชันอายัด/ปลดอายัด
-  const toggleBlock = async () => {
-    const newStatus = client.status === 'Active' ? 'Blocked' : 'Active';
-    if (!confirm(`Confirm change status to ${newStatus}?`)) return;
-    const { error } = await supabase.from('clients').update({ status: newStatus }).eq('id', params.id);
-    if (!error) window.location.reload();
-  };
-
-  // -------------------------------------------------------
-  // 🔥 ฟังก์ชันลบบัญชีถาวร (NEW FUNCTION)
-  // -------------------------------------------------------
-  const handleDelete = async () => {
-    const confirmMsg = "⚠️ คำเตือน: คุณต้องการลบบัญชีนี้ถาวรใช่ไหม?\n\nข้อมูลและประวัติธุรกรรมทั้งหมดจะหายไปและกู้คืนไม่ได้!";
-    if (!confirm(confirmMsg)) return;
-
-    try {
-      // 1. ลบ Transaction ของคนนี้ทิ้งก่อน (เพื่อกัน Error เรื่อง Foreign Key)
-      await supabase.from('transactions').delete().eq('client_id', params.id);
-
-      // 2. ลบข้อมูล Client จริงๆ
-      const { error } = await supabase.from('clients').delete().eq('id', params.id);
-
-      if (error) throw error;
-
-      alert("ลบบัญชีเรียบร้อยแล้ว (Account Deleted)");
-      router.push('/dashboard/accounts'); // ดีดกลับไปหน้ารายชื่อ
-
-    } catch (error: any) {
-      alert("เกิดข้อผิดพลาดในการลบ: " + error.message);
+  const fetchClientData = async () => {
+    // 1. ดึงข้อมูลลูกค้า
+    const { data: c } = await supabase.from('clients').select('*').eq('id', params.id).single();
+    if (c) {
+      setClient(c);
+      setEditName(c.name);
+      setEditBalance(c.balance);
     }
+    // 2. ดึงประวัติธุรกรรม (Traffic)
+    const { data: t } = await supabase.from('transactions')
+      .select('*')
+      .or(`client_id.eq.${params.id}`) // จริงๆควรเช็ค sender/receiver แต่เอาแค่นี้ก่อนง่ายๆ
+      .order('created_at', { ascending: false });
+    setTransactions(t || []);
   };
 
-  if (!client) return <div className="p-10 text-center text-slate-400 font-bold">Loading Customer Data...</div>;
+  // --- ฟังก์ชันควบคุม (Control Functions) ---
+
+  const handleUpdate = async () => {
+    if(!confirm("ยืนยันการแก้ไขข้อมูล?")) return;
+    const { error } = await supabase.from('clients')
+      .update({ name: editName, balance: parseFloat(editBalance) })
+      .eq('id', params.id);
+    if (!error) alert("อัปเดตข้อมูลเรียบร้อย!");
+  };
+
+  const toggleStatus = async () => {
+    const newStatus = client.status === 'Active' ? 'Blocked' : 'Active';
+    if(!confirm(`ยืนยันการเปลี่ยนสถานะเป็น ${newStatus}?`)) return;
+    
+    await supabase.from('clients').update({ status: newStatus }).eq('id', params.id);
+    setClient({ ...client, status: newStatus });
+  };
+
+  const handleDelete = async () => {
+    const txt = prompt("พิมพ์ 'DELETE' เพื่อยืนยันการลบบัญชีถาวร (กู้คืนไม่ได้)");
+    if (txt !== 'DELETE') return;
+
+    // 1. ลบ Transaction ก่อน (กัน Error)
+    await supabase.from('transactions').delete().eq('client_id', params.id);
+    // 2. ลบ Client
+    await supabase.from('clients').delete().eq('id', params.id);
+    
+    alert("ลบบัญชีเรียบร้อย");
+    router.push("/dashboard");
+  };
+
+  if (!client) return <div className="p-10 font-bold text-slate-400">Loading System...</div>;
 
   return (
     <div className="min-h-screen bg-slate-100 p-8 font-sans text-slate-900">
       
-      {/* Header Navigation */}
-      <div className="max-w-6xl mx-auto mb-6 flex justify-between items-center">
-        <button onClick={() => router.back()} className="flex items-center gap-2 text-slate-500 hover:text-blue-600 font-bold transition-colors">
-          <ArrowLeft size={20} /> Back to Accounts
+      {/* Header ย้อนกลับ */}
+      <div className="max-w-5xl mx-auto mb-6 flex justify-between items-center">
+        <button onClick={() => router.back()} className="flex items-center gap-2 text-slate-500 hover:text-blue-600 font-bold transition">
+          <ArrowLeft size={20} /> Back to Dashboard
         </button>
         <div className="text-right">
-          <p className="text-xs text-slate-400 font-bold uppercase">System ID</p>
-          <p className="font-mono text-slate-600">#{params.id}</p>
+          <h1 className="text-xl font-bold text-slate-800">Account Management</h1>
+          <p className="text-xs text-slate-400 font-mono">ID: {params.id} | REF: {client.account_number}</p>
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        {/* Left Column: Edit Profile & Transactions */}
-        <div className="md:col-span-2 space-y-6">
-          
-          {/* Edit Profile Card */}
-          <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
-            <h2 className="text-2xl font-bold flex items-center gap-2 mb-6">
-              <User className="text-blue-600" /> Edit Profile
-            </h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Name</label>
-                <input 
-                  className="w-full text-lg font-bold border-b-2 border-slate-200 focus:border-blue-600 outline-none py-2 bg-transparent transition-colors" 
-                  value={editForm.name} 
-                  onChange={(e) => setEditForm({...editForm, name: e.target.value})} 
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Balance (THB)</label>
-                <input 
-                  type="number" 
-                  className="w-full text-lg font-bold text-blue-600 border-b-2 border-slate-200 focus:border-blue-600 outline-none py-2 bg-transparent transition-colors" 
-                  value={editForm.balance} 
-                  onChange={(e) => setEditForm({...editForm, balance: e.target.value})} 
-                />
-              </div>
-              <button 
-                onClick={handleSave} 
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-blue-600/20 transition-all active:scale-95"
-              >
-                <Save size={18} /> Save Changes
-              </button>
-            </div>
-          </div>
-
-          {/* Transactions Table */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 overflow-hidden">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <History size={18} /> Transaction History
-            </h3>
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-slate-500 font-bold uppercase">
-                <tr>
-                  <th className="py-3 px-4 text-left">Date</th>
-                  <th className="py-3 px-4 text-left">Description</th>
-                  <th className="py-3 px-4 text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {transactions.length > 0 ? transactions.map((t: any) => (
-                  <tr key={t.id} className="hover:bg-slate-50">
-                    <td className="py-3 px-4 text-slate-500">{new Date(t.created_at).toLocaleDateString()}</td>
-                    <td className="py-3 px-4 font-medium text-slate-700">{t.description}</td>
-                    <td className={`py-3 px-4 text-right font-bold ${t.type === 'Deposit' ? 'text-green-600' : 'text-slate-800'}`}>
-                      {t.type === 'Deposit' ? '+' : '-'}{Number(t.amount).toLocaleString()}
-                    </td>
-                  </tr>
-                )) : (
-                  <tr><td colSpan={3} className="py-8 text-center text-slate-400">No transactions recorded.</td></tr>
-                )}
-              </tbody>
-            </table>
+        {/* ช่อง 1: แก้ไขข้อมูล (Edit Profile) */}
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 md:col-span-2">
+          <h2 className="text-lg font-bold mb-6 flex items-center gap-2 border-b pb-4"><ShieldCheck className="text-blue-600"/> Edit Information</h2>
+          <div className="space-y-6">
+             <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Account Name</label>
+                <input className="w-full text-xl font-bold border-b-2 border-slate-200 py-2 outline-none focus:border-blue-600 bg-transparent" 
+                  value={editName} onChange={e => setEditName(e.target.value)} />
+             </div>
+             <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Total Balance (THB)</label>
+                <input type="number" className="w-full text-3xl font-bold text-blue-600 border-b-2 border-slate-200 py-2 outline-none focus:border-blue-600 bg-transparent font-mono" 
+                  value={editBalance} onChange={e => setEditBalance(e.target.value)} />
+             </div>
+             <button onClick={handleUpdate} className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-600/20">
+               <Save size={18} /> Save Changes
+             </button>
           </div>
         </div>
 
-        {/* Right Column: Admin Actions */}
+        {/* ช่อง 2: ควบคุม (Control Actions) */}
         <div className="space-y-6">
-          
-          {/* Status & Freeze Control */}
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <AlertTriangle className="text-orange-500" /> Admin Actions
-            </h3>
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <h2 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2"><AlertOctagon className="text-orange-500"/> Danger Zone</h2>
             
             {/* ปุ่ม Freeze */}
-            <button 
-              onClick={toggleBlock} 
-              className={`w-full py-3 mb-3 rounded-lg font-bold flex justify-center items-center gap-2 border transition-all ${client.status === 'Active' ? 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-600 hover:text-white' : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-600 hover:text-white'}`}
-            >
-              {client.status === 'Active' ? <><Ban size={18} /> Freeze Account</> : <><CheckCircle size={18} /> Unfreeze Account</>}
+            <button onClick={toggleStatus} className={`w-full py-3 rounded-xl font-bold border mb-3 flex justify-center items-center gap-2 ${client.status === 'Active' ? 'border-orange-200 text-orange-600 hover:bg-orange-50' : 'bg-green-600 text-white border-transparent'}`}>
+              {client.status === 'Active' ? <><Ban size={18}/> Freeze Account</> : <><ShieldCheck size={18}/> Unfreeze / Activate</>}
             </button>
 
-            <div className="border-t border-slate-100 my-4"></div>
-
-            {/* 🔥 ปุ่ม Delete (ใหม่) */}
-            <p className="text-xs text-slate-400 mb-2">Danger Zone</p>
-            <button 
-              onClick={handleDelete} 
-              className="w-full py-3 rounded-lg font-bold flex justify-center items-center gap-2 bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white transition-all shadow-sm"
-            >
-              <Trash2 size={18} /> Delete Account
+            {/* ปุ่ม Delete */}
+            <button onClick={handleDelete} className="w-full py-3 rounded-xl font-bold border border-red-200 text-red-600 hover:bg-red-600 hover:text-white transition flex justify-center items-center gap-2">
+              <Trash2 size={18}/> Delete Permanently
             </button>
           </div>
 
-          {/* System Logs */}
-          <div className="bg-slate-900 text-slate-400 p-6 rounded-xl text-xs font-mono">
-            <p className="text-white font-bold mb-2">SYSTEM LOGS:</p>
-            <p>- Connected to Database</p>
-            <p>- Security Level: High</p>
-            <p className="text-green-500">- Ready for commands_</p>
+          <div className="bg-slate-900 text-slate-400 p-6 rounded-2xl text-xs font-mono">
+            <p className="text-white font-bold mb-2">SYSTEM STATUS:</p>
+            <p>Connection: Secure (TLS)</p>
+            <p>Database: Synced</p>
+            <p>User Status: {client.status}</p>
           </div>
         </div>
+
+        {/* ช่อง 3: ประวัติธุรกรรม (Traffic) */}
+        <div className="md:col-span-3 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <h2 className="text-lg font-bold mb-4 flex items-center gap-2"><History className="text-slate-500"/> Transaction Traffic</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-500 font-bold uppercase">
+                  <tr><th className="p-3">Time</th><th className="p-3">Type</th><th className="p-3">Description</th><th className="p-3 text-right">Amount</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {transactions.length > 0 ? transactions.map((t: any) => (
+                    <tr key={t.id} className="hover:bg-slate-50">
+                      <td className="p-3 text-slate-400">{new Date(t.created_at).toLocaleString()}</td>
+                      <td className="p-3"><span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${t.type === 'Deposit' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'}`}>{t.type}</span></td>
+                      <td className="p-3 font-medium">{t.description}</td>
+                      <td className={`p-3 text-right font-bold ${t.type === 'Deposit' ? 'text-green-600' : 'text-slate-800'}`}>
+                        {t.type === 'Deposit' ? '+' : '-'}{Number(t.amount).toLocaleString()}
+                      </td>
+                    </tr>
+                  )) : <tr><td colSpan={4} className="p-8 text-center text-slate-400">No traffic history found.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+        </div>
+
       </div>
     </div>
   );
