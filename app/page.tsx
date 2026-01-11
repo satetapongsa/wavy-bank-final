@@ -1,218 +1,101 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { 
-  LayoutDashboard, Users, Banknote, LogOut, 
-  TrendingUp, Landmark, RefreshCw, ShieldCheck, AlertTriangle, Activity 
-} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Lock, User, Loader2, LogIn } from "lucide-react";
 
-export default function Dashboard() {
-  const [clients, setClients] = useState<any[]>([]);
+export default function LoginPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
-  
-  // State เช็คสิทธิ์ (เริ่มที่ true ไว้ก่อน หน้าจะได้ไม่กระพริบตอนโหลด)
-  const [isAuthorized, setIsAuthorized] = useState(true);
-  
-  // State สำหรับฟอร์ม
-  const [formData, setFormData] = useState({ name: "", email: "", balance: "" });
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
+  // ล้างค่าเก่าทิ้งก่อนเลย กันมันจำผิด
   useEffect(() => {
-    // 1. เช็คสิทธิ์แบบ Manual
-    const adminKey = localStorage.getItem("isAdmin");
-    
-    if (!adminKey) {
-      // 🛑 ถ้าไม่มีสิทธิ์: ห้ามสั่ง Redirect อัตโนมัติ! (ตัวการทำ Loop)
-      // ให้ปรับ State เพื่อโชว์หน้า "Access Denied" แทน
-      setIsAuthorized(false);
-      return; 
-    }
-
-    // 2. ถ้ามีสิทธิ์: ดึงข้อมูลทันที
-    fetchData();
+    localStorage.removeItem("isAdmin");
   }, []);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const { data } = await supabase.from('clients').select('*').order('id', { ascending: false });
-      setClients(data || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+  // 1. ล็อกอิน Admin (แบบบ้านๆ)
+  const handleAdminLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    // เช็คดื้อๆ เลย ถ้าใช่ก็ปล่อยผ่าน
+    if (username === "admin" && (password === "admin" || password === "887624")) {
+      localStorage.setItem("isAdmin", "true");
+      window.location.href = "/dashboard";
+    } else {
+      alert("ชื่อหรือรหัสผ่านผิด (ลอง admin / admin ดูครับ)");
     }
   };
 
-  const handleLogout = async () => {
-    localStorage.clear();
-    await supabase.auth.signOut();
-    window.location.href = "/"; // กดเอง ถึงจะยอมให้ดีดกลับ
+  // 2. ล็อกอิน Google
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/user` },
+    });
+    if (error) alert(error.message);
   };
 
-  const handleCreate = async () => {
-    if (!formData.name || !formData.balance) return alert("กรอกข้อมูลให้ครบก่อนครับ");
-    const accNum = `101-0-${Math.floor(Math.random() * 89999 + 10000)}-${Math.floor(Math.random() * 9)}`;
-    
-    const fake = { id: Date.now(), name: formData.name, account_number: accNum, balance: formData.balance, status: 'Active' };
-    setClients([fake, ...clients]);
-    setFormData({ name: "", email: "", balance: "" });
-
-    await supabase.from('clients').insert([{
-      name: formData.name,
-      email: formData.email || `user${Date.now()}@temp.com`,
-      account_number: accNum,
-      balance: parseFloat(formData.balance),
-      status: 'Active',
-      region: 'Bangkok'
-    }]);
-    
-    fetchData();
-  };
-
-  const totalAssets = clients.reduce((sum, c) => sum + Number(c.balance), 0);
-  const activeUsers = clients.filter(c => c.status === 'Active').length;
-
-  // ------------------------------------------------------------------
-  // ⛔️ โซนกันผี (Anti-Loop): ถ้าไม่มีสิทธิ์ ให้โชว์หน้านี้ "นิ่งๆ"
-  // ------------------------------------------------------------------
-  if (!isAuthorized) {
-    return (
-      <div className="h-screen flex flex-col items-center justify-center bg-slate-900 text-white gap-6">
-        <div className="bg-red-500/20 p-6 rounded-full animate-pulse">
-           <AlertTriangle size={64} className="text-red-500" />
-        </div>
-        <div className="text-center">
-            <h1 className="text-3xl font-bold mb-2">Access Denied</h1>
-            <p className="text-slate-400">คุณไม่มีสิทธิ์เข้าถึงหน้านี้ (กรุณาเข้าสู่ระบบด้วยรหัส Admin)</p>
-        </div>
-        
-        {/* ปุ่มนี้ให้ User กดเอง เพื่อหยุด Loop */}
-        <button 
-          onClick={() => window.location.href = "/"}
-          className="bg-red-600 px-8 py-3 rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-600/30"
-        >
-          กลับไปหน้า Login
-        </button>
-      </div>
-    );
-  }
-
-  // ------------------------------------------------------------------
-  // ✅ โซน Admin Dashboard (ตัวเต็ม)
-  // ------------------------------------------------------------------
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
-      
-      {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-20">
-        <div className="p-6 flex items-center gap-3 border-b border-slate-800">
-          <div className="bg-blue-600 p-2 rounded-lg"><Landmark size={24} /></div>
-          <span className="font-bold text-lg tracking-wide">WAVY BANK</span>
-        </div>
-        <nav className="flex-1 p-4 space-y-2">
-          <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 px-2">Main Menu</div>
-          <button className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600/10 text-blue-400 border border-blue-600/20 rounded-xl font-bold">
-            <LayoutDashboard size={20} /> Executive Overview
-          </button>
-        </nav>
-        <div className="p-4 border-t border-slate-800 bg-slate-950/30">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center font-bold shadow-lg">A</div>
-            <div><p className="text-sm font-bold">Administrator</p><p className="text-[10px] text-slate-400">System Access: Full</p></div>
-          </div>
-        </div>
-      </aside>
+    <div className="min-h-screen flex items-center justify-center bg-slate-100 font-sans text-slate-900 p-4">
+      <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm border border-slate-200">
+        
+        <h1 className="text-2xl font-bold text-center mb-6 text-slate-800">WAVY BANK</h1>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
-        <header className="h-20 bg-white border-b border-slate-200 flex justify-between items-center px-8 shadow-sm z-10">
+        {/* ฟอร์ม Admin */}
+        <form onSubmit={handleAdminLogin} className="space-y-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Financial Command Center</h1>
-            <p className="text-slate-400 text-xs">Real-time Banking Monitoring System</p>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={fetchData} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"><RefreshCw size={20} className={loading ? "animate-spin" : ""} /></button>
-            <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-600 hover:text-white font-bold transition cursor-pointer">
-              <LogOut size={18} /> Logout
-            </button>
-          </div>
-        </header>
-
-        <div className="flex-1 overflow-y-auto p-8 space-y-8 pb-20">
-          
-          {/* Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
-              <div className="absolute right-0 top-0 p-4 opacity-5"><Banknote size={80} /></div>
-              <p className="text-xs font-bold text-slate-400 uppercase">Total Assets</p>
-              <h3 className="text-3xl font-bold text-slate-900 mt-1">{totalAssets.toLocaleString()} <span className="text-sm font-normal text-slate-400">THB</span></h3>
-              <div className="mt-4 text-xs font-bold text-green-600 flex items-center gap-1"><TrendingUp size={14}/> +2.4% Growth</div>
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <p className="text-xs font-bold text-slate-400 uppercase">Active Accounts</p>
-              <h3 className="text-3xl font-bold text-slate-900 mt-1">{activeUsers}</h3>
-              <div className="mt-4 text-xs font-bold text-blue-600 flex items-center gap-1"><ShieldCheck size={14}/> Verified Users</div>
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <p className="text-xs font-bold text-slate-400 uppercase">System Health</p>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span>
-                <span className="font-bold text-green-600 text-lg">OPERATIONAL</span>
-              </div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Username</label>
+            <div className="relative">
+              <User className="absolute left-3 top-3 text-slate-400" size={18} />
+              <input 
+                type="text" 
+                placeholder="admin" 
+                className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
             </div>
           </div>
 
-          {/* Registration & Table */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Form */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Users size={20} className="text-blue-600"/> Fast Registration</h3>
-              <div className="space-y-3">
-                <input placeholder="Client Name" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-                <input placeholder="Email" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
-                <input type="number" placeholder="Initial Deposit" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm" value={formData.balance} onChange={e => setFormData({...formData, balance: e.target.value})} />
-                <button onClick={handleCreate} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition">Create Account</button>
-              </div>
-            </div>
-
-            {/* Table */}
-            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                <h3 className="font-bold text-slate-800 flex items-center gap-2"><Activity size={20} className="text-blue-600"/> Live Database</h3>
-              </div>
-              <div className="overflow-y-auto max-h-[400px]">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 text-xs font-bold text-slate-500 uppercase sticky top-0">
-                    <tr><th className="p-4">Account</th><th className="p-4">Name</th><th className="p-4 text-right">Balance</th><th className="p-4 text-center">Status</th><th className="p-4 text-center">Action</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {clients.map(c => (
-                      <tr key={c.id} className="hover:bg-slate-50 transition">
-                        <td className="p-4 font-mono text-xs text-slate-500">{c.account_number}</td>
-                        <td className="p-4 font-bold text-slate-700">{c.name}</td>
-                        <td className="p-4 text-right font-bold text-slate-900">{Number(c.balance).toLocaleString()}</td>
-                        <td className="p-4 text-center">
-                          <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${c.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-                            {c.status}
-                          </span>
-                        </td>
-                        <td className="p-4 text-center">
-                          <a href={`/dashboard/manage/${c.id}`} className="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-600 transition">
-                            Manage
-                          </a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-3 text-slate-400" size={18} />
+              <input 
+                type="password" 
+                placeholder="admin" 
+                className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
             </div>
           </div>
 
+          <button type="submit" className="w-full bg-slate-900 text-white py-2.5 rounded-lg font-bold hover:bg-slate-800 transition">
+            เข้าสู่ระบบ Admin
+          </button>
+        </form>
+
+        {/* เส้นคั่น */}
+        <div className="relative flex py-5 items-center">
+          <div className="flex-grow border-t border-slate-200"></div>
+          <span className="flex-shrink-0 mx-4 text-xs text-slate-400">หรือ</span>
+          <div className="flex-grow border-t border-slate-200"></div>
         </div>
-      </main>
+
+        {/* ปุ่ม Google */}
+        <button 
+          onClick={handleGoogleLogin} 
+          disabled={loading}
+          className="w-full flex items-center justify-center gap-2 border border-slate-300 p-2.5 rounded-lg hover:bg-slate-50 font-bold text-slate-700 text-sm"
+        >
+          {loading ? <Loader2 className="animate-spin" size={18}/> : <LogIn size={18} />} 
+          เข้าใช้งานด้วย Google
+        </button>
+
+      </div>
     </div>
   );
 }
